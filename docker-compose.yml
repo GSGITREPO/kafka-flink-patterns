@@ -1,0 +1,46 @@
+# Single-broker Kafka in KRaft mode (no ZooKeeper) for local development.
+# Exposes the broker on localhost:9092 for clients running on the host.
+services:
+  kafka:
+    image: bitnami/kafka:3.7
+    container_name: kafka-flink-patterns-broker
+    ports:
+      - "9092:9092"
+    environment:
+      # KRaft (controller + broker in one process)
+      KAFKA_CFG_NODE_ID: "0"
+      KAFKA_CFG_PROCESS_ROLES: "controller,broker"
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "0@kafka:9093"
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      # Listeners: internal (container) + external (host)
+      KAFKA_CFG_LISTENERS: "PLAINTEXT://:9094,CONTROLLER://:9093,EXTERNAL://:9092"
+      KAFKA_CFG_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9094,EXTERNAL://localhost:9092"
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      # Sensible local defaults
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "true"
+      KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9094 --list || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Optional one-shot helper that creates the demo topic with 3 partitions.
+  # Runs, creates the topic, then exits.
+  topic-init:
+    image: bitnami/kafka:3.7
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        kafka-topics.sh --bootstrap-server kafka:9094 \
+          --create --if-not-exists \
+          --topic trades --partitions 3 --replication-factor 1
+        echo "topic 'trades' ready"
